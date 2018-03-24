@@ -160,21 +160,31 @@ class FBADClientProtocol(IntNStringReceiver):
         self.transport.loseConnection()
 
     @defer.inlineCallbacks
-    def remote_build(self, project, zippath):
+    def remote_build(self, project, zippath, only=None):
         """
         Run a remote build.
         :param project: project to build
         :type project: Project
         :param zippath: path of zip containg the project files
         :type zippath: str or unicode
+        :param only: which images to built, specified by their tag
+        :type only: str or unicode or None
         """
         if self.state != self.STATE_READY:
             raise RuntimeError("Protocol not yet ready!")
+
         self.state = self.STATE_BUILDING
         self.build_d = defer.Deferred()
-        self.sendString("build")
         ser_project = project.dumps()
-        self.sendString(ser_project)
+        self.sendString(
+            json.dumps(
+                {
+                    "command": "build",
+                    "project": ser_project,
+                    "only": only,
+                }
+                ).encode(constants.ENCODING),
+            )
         with open(zippath, "rb") as fin:
             yield self.send_file(fin)
         exitcodes = yield self.build_d

@@ -25,6 +25,8 @@ class Image(object):
         This can be used to include other files (if, for example, the dockerfile requires
         access to a shared package defined in a parent directory)
     :type buildpath: str or unicode
+    :param preexec_command: command to execute first (format: [prog_path, ARG1, ARG2, ...]
+    :type preexec_command: list:
     """
     def __init__(
         self,
@@ -33,6 +35,7 @@ class Image(object):
         tag=None,
         dockerfile="Dockerfile",
         buildpath=None,
+        preexec_command=None,
         ):
             self.path = path
             # remove trailing slashes
@@ -52,7 +55,9 @@ class Image(object):
                 self.buildpath = self.path
             else:
                 self.buildpath = buildpath
+            self.preexec_command = preexec_command
 
+    @defer.inlineCallbacks
     def build(self, path, protocolfactory=None):
         """
         Build the image.
@@ -66,13 +71,45 @@ class Image(object):
         bp = os.path.join(path, self.buildpath)
         df = os.path.join(self.path, self.dockerfile)
         command = ["docker", "build", "-t", self.tag, "-f", df, "."]
+        if self.preexec_command is not None:
+            pec = yield self._run_command(
+                path=bp,
+                executable=self.preexec_command[0],
+                command=self.preexec_command,
+                protocolfactory=protocolfactory,
+                )
+            if pec != 0:
+                # error running command
+                defer.returnValue(pec)
+
+        cec = yield self._run_command(
+            path=bp,
+            executable=constants.DOCKER_EXECUTABLE,
+            command=command,
+            protocolfactory=protocolfactory,
+            )
+        defer.returnValue(cec)
+
+    def _run_command(self, path, executable, command, protocolfactory=None):
+        """
+        :param path: path to run command in
+        :type path: str or unicode
+        :param executable: executable to run.
+        :type executable: str or unicode
+        :param command: command to execute
+        :type command: list
+        :param protocolfactory: a callable which returns a protocol to communicate with the child process
+        :type protocolfactory: callable
+        :return: a deferred which will fire when the command executed successfully
+        :rtype: Deferred
+        """
         if protocolfactory is None:
-            c = subprocess.call(command, cwd=bp)
+            c = subprocess.call(command, cwd=path, executable=executable)
             return defer.succeed(c)
         else:
             protocol = protocolfactory()
             d = protocol.d
-            reactor.spawnProcess(protocol, constants.DOCKER_EXECUTABLE, args=command, path=bp)
+            reactor.spawnProcess(protocol, executable, args=command, path=path)
             return d
 
     def dumpus(self):
@@ -87,6 +124,7 @@ class Image(object):
             "tag": self.tag,
             "dockerfile": self.dockerfile,
             "buildpath": self.buildpath,
+            "preexec_command": self.preexec_command,
             }
         return json.dumps(jdata)
 

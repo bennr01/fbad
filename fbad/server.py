@@ -21,7 +21,6 @@ class FBADServerProtocol(IntNStringReceiver):
     STATE_WAIT_VERSION = 0
     STATE_AUTH = 1
     STATE_READY = 2
-    STATE_WAIT_PROJECT = 3
     STATE_FILE_RECEIVE = 4
     STATE_BUILDING = 5
 
@@ -53,9 +52,6 @@ class FBADServerProtocol(IntNStringReceiver):
 
         elif self.state == self.STATE_READY:
             self.handle_command(msg)
-
-        elif self.state == self.STATE_WAIT_PROJECT:
-            self.handle_project_message(msg)
 
         elif self.state == self.STATE_FILE_RECEIVE:
             self.handle_file_data(msg)
@@ -99,39 +95,38 @@ class FBADServerProtocol(IntNStringReceiver):
             self.state = self.STATE_IGNORE
             self.transport.loseConnection()
 
+    @defer.inlineCallbacks
     def handle_command(self, msg):
         """
         Handle a command.
         :param msg: the command
         :type msg: str
         """
-        if msg == "build":
-            self.state = self.STATE_WAIT_PROJECT
+        info = json.loads(msg.decode(constants.ENCODING))
+        if info["command"] == "build":
+            self.state = self.STATE_BUILDING
+            projectdata = info["project"]
+            only = info.get("only", None)
+            self.project = Project.loads(projectdata)
+
+            # receive project data
+            self.recv_d = defer.Deferred()
+            with self.project.get_temp_build_dir() as tp:
+                zp = os.path.join(tp, "projectdata.zip")
+                self.outf = open(zp, "wb")
+                self.state = self.STATE_FILE_RECEIVE
+                yield self.recv_d
+                self.srare = self.STATE_BUILDING
+                self.outf.flush()
+                self.outf.close()
+                protofactory = lambda self=self: OutputRelayProtocol(self, d=defer.Deferred())
+                exitcodes = yield self.project.build_from_zip_path(zp, protocolfactory=protofactory, only=only)
+                self.send_exitcodes(exitcodes)
+
+            self.state = self.STATE_READY
+
         else:
             self.handle_protocol_violation(msg)
-
-    @defer.inlineCallbacks
-    def handle_project_message(self, msg):
-        """
-        Handle a project message.
-        :param msg: the serialized project
-        :type msg: str
-        """
-        self.project = Project.loads(msg)
-
-        # receive project data
-        self.recv_d = defer.Deferred()
-        with self.project.get_temp_build_dir() as tp:
-            zp = os.path.join(tp, "projectdata.zip")
-            self.outf = open(zp, "wb")
-            self.state = self.STATE_FILE_RECEIVE
-            yield self.recv_d
-            self.outf.flush()
-            self.outf.close()
-            protofactory = lambda self=self: OutputRelayProtocol(self, d=defer.Deferred())
-            exitcodes = yield self.project.build_from_zip_path(zp, protocolfactory=protofactory)
-            self.send_exitcodes(exitcodes)
-        self.state = self.STATE_READY
 
     def handle_file_data(self, msg):
         """

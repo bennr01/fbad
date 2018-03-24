@@ -99,13 +99,15 @@ class Project(object):
                 zf.write(lp, zp)
 
     @defer.inlineCallbacks
-    def build_from_zip(self, zf, protocolfactory=None):
+    def build_from_zip(self, zf, protocolfactory=None, only=None):
         """
         Build the project from a zipfile.
         :param zf: zipfile to build from
         :type zf: ZipFile
         :param protocolfactory: a callable which returns a protocol to communicate with the child process
         :type protocolfactory: callable
+        :param only: which images to built, specified by their tag
+        :type only: str or unicode or None
         :return: a deferred which will fire when the project was built
         :rtype: Deferred
         """
@@ -113,23 +115,32 @@ class Project(object):
         with self.get_temp_build_dir() as tbp:
             zf.extractall(tbp)
             for image in self.images:
+
+                if only is not None:
+                    if image.tag not in only:
+                        # skip image
+                        continue
+
                 ec = yield image.build(tbp, protocolfactory=protocolfactory)
                 exitcodes.append(ec)
+
         defer.returnValue(exitcodes)
 
     @defer.inlineCallbacks
-    def build_from_zip_path(self, path, protocolfactory=None):
+    def build_from_zip_path(self, path, protocolfactory=None, only=None):
         """
         Build the project from a zipfile at path.
         :param path: path to zipfile to build from
         :type path: str or unicode
         :param protocolfactory: a callable which returns a protocol to communicate with the child process
         :type protocolfactory: callable
+        :param only: which images to built, specified by their tag
+        :type only: str or unicode or None
         :return: a deferred which will fire when the project was built
         :rtype: Deferred
         """
         with zipfile.ZipFile(path, "r", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-            res = yield self.build_from_zip(zf, protocolfactory=protocolfactory)
+            res = yield self.build_from_zip(zf, protocolfactory=protocolfactory, only=only)
         defer.returnValue(res)
 
     def get_temp_build_dir_path(self):
@@ -197,6 +208,7 @@ class Project(object):
         parser_build.add_argument("-s", "--buildserver", action="store", help="build project on target server", default=None)
         parser_build.add_argument("-p", "--port", action="store", type=int, help="Connect to this port.", default=constants.DEFAULT_PORT)
         parser_build.add_argument("-P", "--password", action="store", help="password for the buildserver", default=None)
+        parser_build.add_argument("-o", "--only", action="store", help="only build images with this tag", default=None)
 
         ns = parser.parse_args()
 
@@ -235,11 +247,16 @@ def _run_remote_build(reactor, ns, project, d):
     :return: a deferred which will fire once the remote build finished.
     :rtype: Deferred
     """
+    if ns.only is None:
+        only = None
+    else:
+        only = [ns.only]
+
     client = yield d
     with project.get_temp_build_dir() as p:
         uzp = os.path.join(p, "up.zip")
         yield threads.deferToThread(project.create_zip, uzp)
-        exitcodes = yield client.remote_build(project, uzp)
+        exitcodes = yield client.remote_build(project, uzp, only=only)
     yield client.disconnect()
     if len(exitcodes) == 0:
         print "Error: no images built!"
