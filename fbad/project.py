@@ -194,7 +194,7 @@ class Project(object):
 
 
         parser_build = subparsers.add_parser("build", help="build this project")
-        parser_build.add_argument("-s", "--buildserver", action="store", help="build project on target server", default="localhost")
+        parser_build.add_argument("-s", "--buildserver", action="store", help="build project on target server", default=None)
         parser_build.add_argument("-p", "--port", action="store", type=int, help="Connect to this port.", default=constants.DEFAULT_PORT)
         parser_build.add_argument("-P", "--password", action="store", help="password for the buildserver", default=None)
 
@@ -204,9 +204,18 @@ class Project(object):
             log.startLogging(sys.stdout)
 
         if ns.command == "build":
+            if ns.buildserver is None:
+                from fbad import server  # import here so server can import project
+                host = "localhost"
+                factory = server.FBADServerFactory(ns.password)
+                ep = endpoints.TCP4ServerEndpoint(reactor, port=ns.port, interface="localhost")
+                ep.listen(factory)
+            else:
+                host = ns.buildserver
+                factory = None
             d = defer.Deferred()
             proto = client.FBADClientProtocol(password=ns.password, d=d, out=sys.stdout)
-            ep = endpoints.TCP4ClientEndpoint(reactor, ns.buildserver, ns.port)
+            ep = endpoints.TCP4ClientEndpoint(reactor, host, ns.port)
             endpoints.connectProtocol(ep, proto)
             task.react(_run_remote_build, (ns, self, d))
 
