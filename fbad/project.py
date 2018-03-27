@@ -205,7 +205,8 @@ class Project(object):
 
 
         parser_build = subparsers.add_parser("build", help="build this project")
-        parser_build.add_argument("-s", "--buildserver", action="store", help="build project on target server", default=None)
+        parser_build.add_argument("-s", "--buildserver", action="store", help="build project on target server", default=None, nargs="*")
+        parser_build.add_argument("-m", "--buildmode", action="store", choices=("parallel", "multi"), default="parallel", help="How to build images if more then one buildserver is specified")
         parser_build.add_argument("-p", "--port", action="store", type=int, help="Connect to this port.", default=constants.DEFAULT_PORT)
         parser_build.add_argument("-P", "--password", action="store", help="password for the buildserver", default=None)
         parser_build.add_argument("-o", "--only", action="store", help="only build images with this tag", default=None)
@@ -218,49 +219,172 @@ class Project(object):
         if ns.command == "build":
             if ns.buildserver is None:
                 from fbad import server  # import here so server can import project
-                host = "localhost"
+                hosts = ["localhost"]
                 factory = server.FBADServerFactory(ns.password)
                 ep = endpoints.TCP4ServerEndpoint(reactor, port=ns.port, interface="localhost")
                 ep.listen(factory)
             else:
-                host = ns.buildserver
+                hosts = ns.buildserver
                 factory = None
-            d = defer.Deferred()
-            proto = client.FBADClientProtocol(password=ns.password, d=d, out=sys.stdout)
-            ep = endpoints.TCP4ClientEndpoint(reactor, host, ns.port)
-            endpoints.connectProtocol(ep, proto)
-            task.react(_run_remote_build, (ns, self, d))
+
+            if len(hosts) == 1:
+                host = hosts[0]
+                task.react(_run_single_build, (host, ns.port, self, ns.only, sys.stdout, ns.password))
+            if ns.buildmode == "multi":
+                task.react(_run_multi_build, (hosts, ns.port, self, ns.only, sys.stdout, ns.password))
+            elif ns.buildmode == "parallel":
+                task.react(_run_parallel_build, (hosts, ns.port, self, ns.only, sys.stdout, ns.password))
 
 
 @defer.inlineCallbacks
-def _run_remote_build(reactor, ns, project, d):
+def _run_single_build(reactor, host, port, project, only, out, password=None, noexit=False):
     """
-    Run a remote build.
+    Run a remote build with a single buildserver.
     :param reactor: the twisted reactor
-    :param reactor: IReactor
-    :param ns: namespace from argument parser
-    :type ns: Namespace
+    :type reactor: IReactor
+    :param host: host of the buildserver
+    :type host: str
+    :param port: port of the buildserver
+    :type port: int
+    :param only: which images to build
+    :type only: list or None
     :param project: the project to build
     :type project: Project
-    :param d: deferred which will fire with the connected FBADClientProtocol
-    :type d: Deferred
-    :return: a deferred which will fire once the remote build finished.
+    :param out: file to write output to
+    :type out: file-like object
+    :param password: password for the buildserver
+    :type password: str
+    :param noexit: skip script exit
+    :type noexit: boolean
+    :return: a deferred which will fire with the exit codes.
     :rtype: Deferred
     """
-    if ns.only is None:
-        only = None
-    else:
-        only = [ns.only]
+    d = defer.Deferred()
+    proto = client.FBADClientProtocol(password=password, d=d, out=out)
+    ep = endpoints.TCP4ClientEndpoint(reactor, host, port)
+    endpoints.connectProtocol(ep, proto)
+    exitcodes = yield _run_remote_build(reactor, project, only, d, out=out)
 
-    client = yield d
-    with project.get_temp_build_dir() as p:
-        uzp = os.path.join(p, "up.zip")
-        yield threads.deferToThread(project.create_zip, uzp)
-        exitcodes = yield client.remote_build(project, uzp, only=only)
-    yield client.disconnect()
+
+    if noexit:
+        defer.returnValue(exitcodes)
+
     if len(exitcodes) == 0:
         print "Error: no images built!"
         sys.exit(1)
     else:
         print "Exitcodes: " + repr(exitcodes)
         sys.exit(max(exitcodes))
+
+
+@defer.inlineCallbacks
+def _run_multi_build(reactor, hosts, port, project, only, out, password=None):
+    """
+    Run a remote build with on each buildserver.
+    :param reactor: the twisted reactor
+    :type reactor: IReactor
+    :param hosts: hosts of the buildservers
+    :type hosts: list of str
+    :param port: port of the buildservers
+    :type port: int
+    :param only: which images to build
+    :type only: list or None
+    :param project: the project to build
+    :type project: Project
+    :param out: file to write output to
+    :type out: file-like object
+    :param password: password for the buildservers
+    :type password: str
+    :return: a deferred which will fire with the exit codes.
+    :rtype: Deferred
+    """
+    ds = []
+    for host in hosts:
+        d = _run_single_build(reactor, host, port, project, only=only, out=out, password=password, noexit=True)
+        ds.append(d)
+    exitcodeslists = yield defer.gatherResults(ds)
+    exitcodes = []
+    for ecl in exitcodeslists:
+        exitcodes += ecl
+
+    if len(exitcodes) == 0:
+        print "Error: no images built!"
+        sys.exit(1)
+    else:
+        print "Exitcodes: " + repr(exitcodes)
+        sys.exit(max(exitcodes))
+
+
+@defer.inlineCallbacks
+def _run_parallel_build(reactor, hosts, port, project, only, out, password=None):
+    """
+    Run a remote build distributed between multiple buildservers.
+    :param reactor: the twisted reactor
+    :type reactor: IReactor
+    :param hosts: hosts of the buildservers
+    :type hosts: list of str
+    :param port: port of the buildservers
+    :type port: int
+    :param only: which images to build
+    :type only: list or None
+    :param project: the project to build
+    :type project: Project
+    :param out: file to write output to
+    :type out: file-like object
+    :param password: password for the buildservers
+    :type password: str
+    :return: a deferred which will fire with the exit codes.
+    :rtype: Deferred
+    """
+    if only is None:
+        tags = [image.tag for image in project.images]
+    else:
+        tags = only
+    ds = []
+    i = 0
+    while len(tags) > 0:
+        tag = tags.pop(0)
+        host = hosts[i]
+        i += 1
+        if i >= len(hosts):
+            i = 0
+        d = _run_single_build(reactor, host, port, project, only=[tag], out=out, password=password, noexit=True)
+        ds.append(d)
+
+    exitcodeslists = yield defer.gatherResults(ds)
+    exitcodes = []
+    for ecl in exitcodeslists:
+        exitcodes += ecl
+
+    if len(exitcodes) == 0:
+        print "Error: no images built!"
+        sys.exit(1)
+    else:
+        print "Exitcodes: " + repr(exitcodes)
+        sys.exit(max(exitcodes))
+
+
+@defer.inlineCallbacks
+def _run_remote_build(reactor, project, only, d, out):
+    """
+    Run a remote build.
+    :param reactor: the twisted reactor
+    :type reactor: IReactor
+    :param only: which images to build
+    :type only: list or None
+    :param project: the project to build
+    :type project: Project
+    :param d: deferred which will fire with the connected FBADClientProtocol
+    :type d: Deferred
+    :param out: file to write output to
+    :type out: file-like object
+    :return: a deferred which will fire with the exit codes.
+    :rtype: Deferred
+    """
+    client = yield d
+    with project.get_temp_build_dir() as p:
+        uzp = os.path.join(p, "up.zip")
+        yield threads.deferToThread(project.create_zip, uzp)
+        exitcodes = yield client.remote_build(project, uzp, only=only)
+    yield client.disconnect()
+    defer.returnValue(exitcodes)
