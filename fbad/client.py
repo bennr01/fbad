@@ -167,7 +167,7 @@ class FBADClientProtocol(IntNStringReceiver):
         :type project: Project
         :param zippath: path of zip containg the project files
         :type zippath: str or unicode
-        :param only: which images to built, specified by their tag
+        :param only: which images to built, specified by their name
         :type only: str or unicode or None
         """
         if self.state != self.STATE_READY:

@@ -106,7 +106,7 @@ class Project(object):
         :type zf: ZipFile
         :param protocolfactory: a callable which returns a protocol to communicate with the child process
         :type protocolfactory: callable
-        :param only: which images to built, specified by their tag
+        :param only: which images to built, specified by their name
         :type only: str or unicode or None
         :return: a deferred which will fire when the project was built
         :rtype: Deferred
@@ -117,7 +117,7 @@ class Project(object):
             for image in self.images:
 
                 if only is not None:
-                    if image.tag not in only:
+                    if image.name not in only:
                         # skip image
                         continue
 
@@ -134,7 +134,7 @@ class Project(object):
         :type path: str or unicode
         :param protocolfactory: a callable which returns a protocol to communicate with the child process
         :type protocolfactory: callable
-        :param only: which images to built, specified by their tag
+        :param only: which images to built, specified by their name
         :type only: str or unicode or None
         :return: a deferred which will fire when the project was built
         :rtype: Deferred
@@ -205,11 +205,11 @@ class Project(object):
 
 
         parser_build = subparsers.add_parser("build", help="build this project")
-        parser_build.add_argument("-s", "--buildserver", action="store", help="build project on target server", default=None, nargs="*")
+        parser_build.add_argument("-s", "--buildserver", action="append", help="build project on target server. Mulitple servers may be specified.", default=None)
         parser_build.add_argument("-m", "--buildmode", action="store", choices=("parallel", "multi"), default="parallel", help="How to build images if more then one buildserver is specified")
         parser_build.add_argument("-p", "--port", action="store", type=int, help="Connect to this port.", default=constants.DEFAULT_PORT)
         parser_build.add_argument("-P", "--password", action="store", help="password for the buildserver", default=None)
-        parser_build.add_argument("-o", "--only", action="store", help="only build images with this tag", default=None)
+        parser_build.add_argument("-o", "--only", action="store", help="only build images with this name", default=None)
 
         ns = parser.parse_args()
 
@@ -227,13 +227,26 @@ class Project(object):
                 hosts = ns.buildserver
                 factory = None
 
+            if ns.only is None:
+                only = None
+            elif isinstance(ns.only, list):
+                if len(list) == 0:
+                    only = None
+                else:
+                    only = ns.only
+            elif isinstance(ns.only, (str, unicode)):
+                only = [ns.only]
+            else:
+                print ns
+                only = None
+
             if len(hosts) == 1:
                 host = hosts[0]
-                task.react(_run_single_build, (host, ns.port, self, ns.only, sys.stdout, ns.password))
+                task.react(_run_single_build, (host, ns.port, self, only, sys.stdout, ns.password))
             if ns.buildmode == "multi":
-                task.react(_run_multi_build, (hosts, ns.port, self, ns.only, sys.stdout, ns.password))
+                task.react(_run_multi_build, (hosts, ns.port, self, only, sys.stdout, ns.password))
             elif ns.buildmode == "parallel":
-                task.react(_run_parallel_build, (hosts, ns.port, self, ns.only, sys.stdout, ns.password))
+                task.react(_run_parallel_build, (hosts, ns.port, self, only, sys.stdout, ns.password))
 
 
 @defer.inlineCallbacks
@@ -337,18 +350,18 @@ def _run_parallel_build(reactor, hosts, port, project, only, out, password=None)
     :rtype: Deferred
     """
     if only is None:
-        tags = [image.tag for image in project.images]
+        names = [image.name for image in project.images]
     else:
-        tags = only
+        names = only
     ds = []
     i = 0
-    while len(tags) > 0:
-        tag = tags.pop(0)
+    while len(names) > 0:
+        name = names.pop(0)
         host = hosts[i]
         i += 1
         if i >= len(hosts):
             i = 0
-        d = _run_single_build(reactor, host, port, project, only=[tag], out=out, password=password, noexit=True)
+        d = _run_single_build(reactor, host, port, project, only=[name], out=out, password=password, noexit=True)
         ds.append(d)
 
     exitcodeslists = yield defer.gatherResults(ds)

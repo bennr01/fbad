@@ -2,6 +2,7 @@
 import os
 import json
 import subprocess
+import platform
 
 from twisted.internet import defer, reactor
 
@@ -70,7 +71,8 @@ class Image(object):
         """
         bp = os.path.join(path, self.buildpath)
         df = os.path.join(self.path, self.dockerfile)
-        command = ["docker", "build", "-t", self.tag, "-f", df, "."]
+        tag = self.format_tag(self.tag)
+        command = ["docker", "build", "-t", tag, "-f", df, "."]
         if self.preexec_command is not None:
             pec = yield self._run_command(
                 path=bp,
@@ -111,6 +113,23 @@ class Image(object):
             d = protocol.d
             reactor.spawnProcess(protocol, executable, args=command, path=path)
             return d
+
+    def format_tag(self, s):
+        """
+        Format a tag (or another string) with buildserver-specific information.
+        :param s: string to format
+        :type s: str or unicode
+        :return: the formated string
+        :rtype: str or unicode
+        """
+        system, node, release, version, arch, processor = platform.uname()
+        info = {
+            "system": system,
+            "node": node,
+            "release": release,
+            "arch": arch,
+            }
+        return s.format(**info)
 
     def dumpus(self):
         """
