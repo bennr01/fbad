@@ -169,6 +169,25 @@ class Project(object):
         finally:
             shutil.rmtree(tp)
 
+    @defer.inlineCallbacks
+    def push(self, only=None, protocolfactory=None):
+        """
+        Push all Images to a docker registry.
+        If only is not None, only push images whose name is in only.
+        :param only: names of images to push
+        :type only: list or None
+        :param protocolfactory: a callable which returns a protocol to communicate with the push child process
+        :type protocolfactory: callable
+        :return: a deferred which will fire when the command executed successfully
+        :rtype: Deferred
+        """
+        for image in self.images:
+            if only is not None:
+                if image.name not in only:
+                    # skip image
+                    continue
+            yield image.push(protocolfactory=protocolfactory)
+
     def dumps(self):
         """
         Return a serialized version of this Project() instance.
@@ -210,6 +229,7 @@ class Project(object):
         parser_build.add_argument("-p", "--port", action="store", type=int, help="Connect to this port.", default=constants.DEFAULT_PORT)
         parser_build.add_argument("-P", "--password", action="store", help="password for the buildserver", default=None)
         parser_build.add_argument("-o", "--only", action="store", help="only build images with this name", default=None)
+        parser_build.add_argument("--push", action="store_true", dest="do_push", help="push built images to registry")
 
         ns = parser.parse_args()
 
@@ -237,20 +257,19 @@ class Project(object):
             elif isinstance(ns.only, (str, unicode)):
                 only = [ns.only]
             else:
-                print ns
                 only = None
 
             if len(hosts) == 1:
                 host = hosts[0]
-                task.react(_run_single_build, (host, ns.port, self, only, sys.stdout, ns.password))
+                task.react(_run_single_build, (host, ns.port, self, only, sys.stdout, ns.password, ns.do_push))
             if ns.buildmode == "multi":
-                task.react(_run_multi_build, (hosts, ns.port, self, only, sys.stdout, ns.password))
+                task.react(_run_multi_build, (hosts, ns.port, self, only, sys.stdout, ns.password, ns.do_push))
             elif ns.buildmode == "parallel":
-                task.react(_run_parallel_build, (hosts, ns.port, self, only, sys.stdout, ns.password))
+                task.react(_run_parallel_build, (hosts, ns.port, self, only, sys.stdout, ns.password, ns.do_push))
 
 
 @defer.inlineCallbacks
-def _run_single_build(reactor, host, port, project, only, out, password=None, noexit=False):
+def _run_single_build(reactor, host, port, project, only, out, password=None, push=False, noexit=False):
     """
     Run a remote build with a single buildserver.
     :param reactor: the twisted reactor
@@ -267,6 +286,8 @@ def _run_single_build(reactor, host, port, project, only, out, password=None, no
     :type out: file-like object
     :param password: password for the buildserver
     :type password: str
+    :param push: whether to push built images to registry or not
+    :type push: bool
     :param noexit: skip script exit
     :type noexit: boolean
     :return: a deferred which will fire with the exit codes.
@@ -276,7 +297,7 @@ def _run_single_build(reactor, host, port, project, only, out, password=None, no
     proto = client.FBADClientProtocol(password=password, d=d, out=out)
     ep = endpoints.TCP4ClientEndpoint(reactor, host, port)
     endpoints.connectProtocol(ep, proto)
-    exitcodes = yield _run_remote_build(reactor, project, only, d, out=out)
+    exitcodes = yield _run_remote_build(reactor, project, only, d, out=out, push=push)
 
 
     if noexit:
@@ -291,7 +312,7 @@ def _run_single_build(reactor, host, port, project, only, out, password=None, no
 
 
 @defer.inlineCallbacks
-def _run_multi_build(reactor, hosts, port, project, only, out, password=None):
+def _run_multi_build(reactor, hosts, port, project, only, out, password=None, push=False):
     """
     Run a remote build with on each buildserver.
     :param reactor: the twisted reactor
@@ -308,12 +329,14 @@ def _run_multi_build(reactor, hosts, port, project, only, out, password=None):
     :type out: file-like object
     :param password: password for the buildservers
     :type password: str
+    :param push: whether to push built images to registry or not
+    :type push: bool
     :return: a deferred which will fire with the exit codes.
     :rtype: Deferred
     """
     ds = []
     for host in hosts:
-        d = _run_single_build(reactor, host, port, project, only=only, out=out, password=password, noexit=True)
+        d = _run_single_build(reactor, host, port, project, only=only, out=out, password=password, push=push, noexit=True)
         ds.append(d)
     exitcodeslists = yield defer.gatherResults(ds)
     exitcodes = []
@@ -329,7 +352,7 @@ def _run_multi_build(reactor, hosts, port, project, only, out, password=None):
 
 
 @defer.inlineCallbacks
-def _run_parallel_build(reactor, hosts, port, project, only, out, password=None):
+def _run_parallel_build(reactor, hosts, port, project, only, out, password=None, push=False):
     """
     Run a remote build distributed between multiple buildservers.
     :param reactor: the twisted reactor
@@ -346,6 +369,8 @@ def _run_parallel_build(reactor, hosts, port, project, only, out, password=None)
     :type out: file-like object
     :param password: password for the buildservers
     :type password: str
+    :param push: whether to push built images to registry or not
+    :type push: bool
     :return: a deferred which will fire with the exit codes.
     :rtype: Deferred
     """
@@ -361,7 +386,7 @@ def _run_parallel_build(reactor, hosts, port, project, only, out, password=None)
         i += 1
         if i >= len(hosts):
             i = 0
-        d = _run_single_build(reactor, host, port, project, only=[name], out=out, password=password, noexit=True)
+        d = _run_single_build(reactor, host, port, project, only=[name], out=out, password=password, push=push, noexit=True)
         ds.append(d)
 
     exitcodeslists = yield defer.gatherResults(ds)
@@ -378,7 +403,7 @@ def _run_parallel_build(reactor, hosts, port, project, only, out, password=None)
 
 
 @defer.inlineCallbacks
-def _run_remote_build(reactor, project, only, d, out):
+def _run_remote_build(reactor, project, only, d, out, push=False):
     """
     Run a remote build.
     :param reactor: the twisted reactor
@@ -391,6 +416,8 @@ def _run_remote_build(reactor, project, only, d, out):
     :type d: Deferred
     :param out: file to write output to
     :type out: file-like object
+    :param push: whether to push built images to registry or not
+    :type push: bool
     :return: a deferred which will fire with the exit codes.
     :rtype: Deferred
     """
@@ -398,6 +425,6 @@ def _run_remote_build(reactor, project, only, d, out):
     with project.get_temp_build_dir() as p:
         uzp = os.path.join(p, "up.zip")
         yield threads.deferToThread(project.create_zip, uzp)
-        exitcodes = yield client.remote_build(project, uzp, only=only)
+        exitcodes = yield client.remote_build(project, uzp, only=only, push=push)
     yield client.disconnect()
     defer.returnValue(exitcodes)

@@ -131,6 +131,25 @@ class Image(object):
             }
         return s.format(**info)
 
+    @defer.inlineCallbacks
+    def push(self, protocolfactory=None):
+        """
+        Push this Image to a docker registry.
+        :param protocolfactory: a callable which returns a protocol to communicate with the child process
+        :type protocolfactory: callable
+        :return: a deferred which will fire when the command executed successfully
+        :rtype: Deferred
+        """
+        tag = self.format_tag(self.tag)
+        command = ["docker", "push", tag]
+        exitcode = yield self._run_command(
+            path=".",
+            executable=constants.DOCKER_EXECUTABLE,
+            command=command,
+            protocolfactory=protocolfactory,
+            )
+        defer.returnValue(exitcode)
+
     def dumpus(self):
         """
         Return a serialized version of this Image() instance as a unicode string.
