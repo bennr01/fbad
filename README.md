@@ -1,7 +1,7 @@
-#FBAD
+# FBAD
 FBAD is a commandline tool for projects requiring multiple docker images.
 
-#Features
+# Features
 - easily build projects with multiple docker images
 - build on remote server
 - automatically push build images to registry
@@ -13,7 +13,7 @@ FBAD is a commandline tool for projects requiring multiple docker images.
 - show build output live
 - ...
 
-#Recommended directory structure
+# Recommended directory structure
 
 ```
 myproject/
@@ -27,9 +27,9 @@ myproject/
     project.py
 ```
 
-#Example `project.py`
+# Example `project.py`
 
-```
+```python
 """example fbad build file"""
 from fbad import Project, Image
 
@@ -89,7 +89,22 @@ if __name__ == "__main__":
 
 ```
 
-#buildserver
+# Buildserver
 A buildserver is available using the `fbad-server` command.
 You can also access import the buildserver as `fbad.server.FBADServerFactory`.
 If no custom buildserver is specified when building a project, another buildserver is temporarly started.
+
+# Installation
+**Requirements**
+FBAD requires python2 (most implementations should work) and twisted.
+The buildserver also requires docker to be installed.
+
+**Install via pip**
+1. `pip install fbad`
+2. Done
+
+**Install from source**
+1. `git clone https://github.com/bennr01/fbad.git`
+2. `cd fbad`
+3. `python setup.py install` (`sudo` may be required, depending on your python configuration)
+4. Done.
