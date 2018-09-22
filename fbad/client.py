@@ -160,7 +160,7 @@ class FBADClientProtocol(IntNStringReceiver):
         self.transport.loseConnection()
 
     @defer.inlineCallbacks
-    def remote_build(self, project, zippath, only=None, push=False):
+    def remote_build(self, project, zippath, only=None, push=False, deploy=False):
         """
         Run a remote build.
         :param project: project to build
@@ -171,6 +171,8 @@ class FBADClientProtocol(IntNStringReceiver):
         :type only: str or unicode or None
         :param push: if True, push images to the registry
         :type push: bool
+        :param deploy: whether to deploy the compose file after the build.
+        :type deploy: bool
         :return: a deferred which fires with the exitcodes of the build processes.
         :rtype: Deferred
         """
@@ -187,6 +189,7 @@ class FBADClientProtocol(IntNStringReceiver):
                     "project": ser_project,
                     "only": only,
                     "push": push,
+                    "deploy": deploy,
                 }
                 ).encode(constants.ENCODING),
             )

@@ -108,6 +108,8 @@ class FBADServerProtocol(IntNStringReceiver):
             projectdata = info["project"]
             only = info.get("only", None)
             do_push = info.get("push", False)
+            do_deploy = info.get("deploy", False)
+            do_pull = do_push
             self.project = Project.loads(projectdata)
 
             # receive project data
@@ -124,6 +126,8 @@ class FBADServerProtocol(IntNStringReceiver):
                 exitcodes = yield self.project.build_from_zip_path(zp, protocolfactory=protofactory, only=only)
                 if do_push:
                     yield self.project.push(only=only, protocolfactory=protofactory)
+                if do_deploy:
+                    yield self.project.deploy_from_zip(zp, pull=do_pull, protocolfactory=protofactory)
                 self.send_exitcodes(exitcodes)
 
             self.state = self.STATE_READY

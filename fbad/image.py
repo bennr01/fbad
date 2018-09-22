@@ -7,6 +7,7 @@ import platform
 from twisted.internet import defer, reactor
 
 from fbad import constants
+from fbad.shutils import run_command
 
 
 class Image(object):
@@ -74,7 +75,7 @@ class Image(object):
         tag = self.format_tag(self.tag)
         command = ["docker", "build", "-t", tag, "-f", df, "."]
         if self.preexec_command is not None:
-            pec = yield self._run_command(
+            pec = yield run_command(
                 path=bp,
                 executable=self.preexec_command[0],
                 command=self.preexec_command,
@@ -84,35 +85,13 @@ class Image(object):
                 # error running command
                 defer.returnValue(pec)
 
-        cec = yield self._run_command(
+        cec = yield run_command(
             path=bp,
             executable=constants.DOCKER_EXECUTABLE,
             command=command,
             protocolfactory=protocolfactory,
             )
         defer.returnValue(cec)
-
-    def _run_command(self, path, executable, command, protocolfactory=None):
-        """
-        :param path: path to run command in
-        :type path: str or unicode
-        :param executable: executable to run.
-        :type executable: str or unicode
-        :param command: command to execute
-        :type command: list
-        :param protocolfactory: a callable which returns a protocol to communicate with the child process
-        :type protocolfactory: callable
-        :return: a deferred which will fire when the command executed successfully
-        :rtype: Deferred
-        """
-        if protocolfactory is None:
-            c = subprocess.call(command, cwd=path, executable=executable)
-            return defer.succeed(c)
-        else:
-            protocol = protocolfactory()
-            d = protocol.d
-            reactor.spawnProcess(protocol, executable, args=command, path=path)
-            return d
 
     def format_tag(self, s):
         """
