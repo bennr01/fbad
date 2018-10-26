@@ -71,7 +71,7 @@ class Image(object):
         :rtype: Deferred
         """
         bp = os.path.join(path, self.buildpath)
-        df = os.path.join(self.path, self.dockerfile)
+        df = os.path.join(path, self.path, self.dockerfile)
         tag = self.format_tag(self.tag)
         command = ["docker", "build", "-t", tag, "-f", df, "."]
         if self.preexec_command is not None:
