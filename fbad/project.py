@@ -41,7 +41,7 @@ class Project(object):
         ):
             self.name = name
             self.images = images
-            self.compose_file = compose_file
+            self._compose_file = compose_file
             self._project_path = None
 
     @property
@@ -76,14 +76,6 @@ class Project(object):
     @project_path.setter
     def project_path(self, value):
         self._project_path = None
-
-    @property
-    def compose_file(self):
-        return os.path.join(self.project_path, self._compose_file)
-
-    @compose_file.setter
-    def compose_file(self, value):
-        self._compose_file = value
 
     def create_zip(self, dest):
         """
@@ -219,21 +211,21 @@ class Project(object):
             yield run_command(
                 path=p,
                 executable=constants.DOCKER_EXECUTABLE,
-                command=["docker-compose", "-f", self.compose_file, "pull"],
+                command=["docker-compose", "-f", path, "pull"],
                 protocolfactory=protocolfactory,
             )
         if in_swarm():
             yield run_command(
                 path=p,
                 executable=constants.DOCKER_EXECUTABLE,
-                command=["docker", "stack", "deploy", "-c", self.compose_file, self.name],
+                command=["docker", "stack", "deploy", "-c", path, self.name],
                 protocolfactory=protocolfactory,
             )
         else:
             yield run_command(
                 path=p,
                 executable=constants.DOCKER_EXECUTABLE,
-                command=["docker-compose", "-f", self.compose_file, "up", "--no-build", "--force-recreate"],
+                command=["docker-compose", "-f", path, "up", "--no-build", "--force-recreate"],
                 protocolfactory=protocolfactory,
             )
 
@@ -279,7 +271,8 @@ class Project(object):
         """
         jdata = json.loads(s)
         jdata["images"] = [Image.loadus(us) for us in jdata["images"]]
-        return cls(**jdata)
+        ins = cls(**jdata)
+        return ins
 
     def main(self):
         """
