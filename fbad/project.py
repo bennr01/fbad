@@ -211,7 +211,7 @@ class Project(object):
             yield run_command(
                 path=p,
                 executable=constants.DOCKER_EXECUTABLE,
-                command=["docker-compose", "-f", path, "pull"],
+                command=["docker-compose", "--file", path, "pull"],
                 protocolfactory=protocolfactory,
             )
         if in_swarm():
@@ -224,8 +224,8 @@ class Project(object):
         else:
             yield run_command(
                 path=p,
-                executable=constants.DOCKER_EXECUTABLE,
-                command=["docker-compose", "-f", path, "up", "--no-build", "--force-recreate"],
+                executable=constants.DOCKER_COMPOSE_EXECUTABLE,
+                command=["docker-compose", "--file", path, "up", "--no-build", "--force-recreate", "--detach"],
                 protocolfactory=protocolfactory,
             )
 

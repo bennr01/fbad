@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name="fbad",
-    version="0.1.2",
+    version="0.1.3",
     author="bennr01",
     author_email="benjamin99.vogt@web.de",
     description="build tools for docker images",

@@ -1,5 +1,6 @@
 """various constants"""
 import struct
+import subprocess
 
 ENCODING = "UTF-8"
 
@@ -18,4 +19,12 @@ MESSAGE_PREFIX_END = "\x01"
 
 READ_CHUNK_SIZE = 8192
 
-DOCKER_EXECUTABLE = "/usr/bin/docker"
+try:
+    DOCKER_EXECUTABLE = subprocess.check_output(["which", "docker"])[:-1]
+except:
+    DOCKER_EXCUTABLE = "/usr/bin/docker"
+
+try:
+    DOCKER_COMPOSE_EXECUTABLE = subprocess.check_output(["which", "docker-compose"])[:-1]
+except:
+    DOCKER_COMPOSE_EXECUTABLE = "/usr/bin/docker-compose"
