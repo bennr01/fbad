@@ -17,7 +17,15 @@ def server_main():
     parser.add_argument("-p", "--port", action="store", type=int, default=constants.DEFAULT_PORT, help="port to listen on")
     parser.add_argument("-P", "--password", action="store", default=None, help="protect this server using this password")
     parser.add_argument("-v", "--verbose", action="store_true", help="be more verbose")
+    parser.add_argument("-V", "--version", action="store_true", help="print version and exit")
     ns = parser.parse_args()
+
+    if ns.version:
+        import pkg_resources
+        version = pkg_resources.get_distribution("fbad").version
+        print("FBAD package version:   " + version)
+        print("FBAD protocol verision: " + constants.COM_VERSION)
+        sys.exit(0)
 
     if ns.verbose:
         log.startLogging(sys.stdout)
