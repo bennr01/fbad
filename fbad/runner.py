@@ -23,8 +23,8 @@ def server_main():
     if ns.version:
         import pkg_resources
         version = pkg_resources.get_distribution("fbad").version
-        print("FBAD package version:   " + version)
-        print("FBAD protocol verision: " + constants.COM_VERSION)
+        print("FBAD package version:  " + version)
+        print("FBAD protocol version: " + constants.COM_VERSION)
         sys.exit(0)
 
     if ns.verbose:
